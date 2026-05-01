@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atlas Finance</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600&family=Onest:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="grain"></div>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">A</span>
+          <div>
+            <p class="eyebrow">Finance OS</p>
+            <h1>Atlas</h1>
+          </div>
+        </div>
+
+        <nav class="nav-stack">
+          <button class="nav-chip active" data-target="#netWorthValue">Painel</button>
+          <button class="nav-chip" data-target="#vaultsPanel">Cofres</button>
+          <button class="nav-chip" data-target="#budgetPanel">Previsoes</button>
+          <button class="nav-chip" data-target="#insightsList">Insights</button>
+        </nav>
+
+        <section class="sidebar-card">
+          <p class="eyebrow">Direcao</p>
+          <h2>Controle elegante, leitura rapida.</h2>
+          <p class="muted">
+            Monocromatico com destaques iOS para separar prioridade, risco e
+            oportunidade sem poluir a leitura.
+          </p>
+        </section>
+
+        <section class="sidebar-card compact" id="syncStatus"></section>
+        <section class="sidebar-card compact" id="sidebarForecast"></section>
+      </aside>
+
+      <main class="main-layout">
+        <header class="hero">
+          <div>
+            <p class="eyebrow">Panorama financeiro</p>
+            <h2>Registro rapido, previsao clara e decisao acionavel.</h2>
+          </div>
+          <div class="hero-actions">
+            <button class="ghost-button" id="exportButton">Exportar resumo</button>
+            <button class="primary-button" id="syncGoalsButton">Sincronizar metas</button>
+          </div>
+        </header>
+
+        <section class="hero-grid">
+          <article class="hero-panel spotlight">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Saldo liquido projetado</p>
+                <h3 id="netWorthValue">R$ 0</h3>
+              </div>
+              <span class="status-pill" id="trendPill">Estavel</span>
+            </div>
+            <p class="lead" id="forecastNarrative"></p>
+            <div class="metric-row" id="topMetrics"></div>
+          </article>
+
+          <article class="hero-panel form-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Entrada expressa</p>
+                <h3>Novo lancamento</h3>
+              </div>
+              <span class="mono-badge">sub-15s</span>
+            </div>
+
+            <form id="transactionForm" class="entry-form">
+              <div class="field-grid dual">
+                <label>
+                  Tipo
+                  <select name="kind">
+                    <option value="income">Renda</option>
+                    <option value="expense" selected>Despesa</option>
+                  </select>
+                </label>
+                <label>
+                  Categoria
+                  <select name="category"></select>
+                </label>
+              </div>
+
+              <div class="field-grid dual">
+                <label>
+                  Valor
+                  <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required />
+                </label>
+                <label>
+                  Nomeacao
+                  <input name="title" type="text" placeholder="Ex.: Mercado, Salario" required />
+                </label>
+              </div>
+
+              <div class="field-grid dual">
+                <label>
+                  Data
+                  <input name="date" type="date" required />
+                </label>
+                <label>
+                  Hora
+                  <input name="time" type="time" required />
+                </label>
+              </div>
+
+              <div class="field-grid dual">
+                <label>
+                  Cofre / objetivo
+                  <input name="vault" type="text" placeholder="Reserva, divida, lazer" />
+                </label>
+                <label>
+                  Observacao
+                  <input name="note" type="text" placeholder="Opcional" />
+                </label>
+              </div>
+
+              <button type="submit" class="primary-button wide">Salvar transacao</button>
+            </form>
+          </article>
+        </section>
+
+        <section class="dashboard-grid">
+          <article class="panel" id="vaultsPanel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Visualizacao de cofres</p>
+                <h3>Areas de custo e metas</h3>
+              </div>
+              <span class="mono-badge">orcamento ativo</span>
+            </div>
+            <div class="vaults-grid" id="vaultsGrid"></div>
+          </article>
+
+          <article class="panel" id="budgetPanel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Estipular orcamento</p>
+                <h3>Distribuicao ideal do mes</h3>
+              </div>
+              <span class="mono-badge">50/30/20+</span>
+            </div>
+            <div id="budgetSummary" class="budget-summary"></div>
+            <div id="budgetBars" class="budget-bars"></div>
+          </article>
+
+          <article class="panel wide-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Resumo anual</p>
+                <h3>Evolucao de ganhos, gastos e sobra</h3>
+              </div>
+              <span class="mono-badge">12 meses</span>
+            </div>
+            <div class="chart-card">
+              <svg id="yearlyChart" viewBox="0 0 760 300" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="summary-strip" id="yearSummaryStrip"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Despesas fixas automaticas</p>
+                <h3>Recorrentes e parcelamentos</h3>
+              </div>
+              <span class="mono-badge">planejado</span>
+            </div>
+            <form id="recurringForm" class="entry-form recurring-form">
+              <div class="field-grid dual">
+                <label>
+                  Descricao
+                  <input name="title" type="text" placeholder="Ex.: Academia" required />
+                </label>
+                <label>
+                  Categoria
+                  <select name="category"></select>
+                </label>
+              </div>
+              <div class="field-grid triple">
+                <label>
+                  Valor
+                  <input name="amount" type="number" min="0" step="0.01" required />
+                </label>
+                <label>
+                  Inicio
+                  <input name="startDate" type="date" required />
+                </label>
+                <label>
+                  Meses
+                  <input name="months" type="number" min="1" step="1" value="12" required />
+                </label>
+              </div>
+              <button type="submit" class="ghost-button wide">Adicionar recorrencia</button>
+            </form>
+            <div class="recurring-list" id="recurringList"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Alertas</p>
+                <h3>Antes de estourar</h3>
+              </div>
+              <span class="mono-badge alert">ativo</span>
+            </div>
+            <div class="alert-list" id="alertsList"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Insights acionaveis</p>
+                <h3>Padroes e recomendacoes</h3>
+              </div>
+              <span class="mono-badge">comportamento</span>
+            </div>
+            <div class="insight-list" id="insightsList"></div>
+          </article>
+
+          <article class="panel wide-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Fluxo recente</p>
+                <h3>Ganhos e perdas em sequencia</h3>
+              </div>
+              <span class="mono-badge">tempo real</span>
+            </div>
+            <div class="ledger-list" id="ledgerList"></div>
+          </article>
+        </section>
+
+        <nav class="mobile-dock">
+          <button class="dock-pill active" data-target="#netWorthValue">Painel</button>
+          <button class="dock-pill" data-target="#vaultsPanel">Cofres</button>
+          <button class="dock-pill" data-target="#transactionForm">Lancar</button>
+          <button class="dock-pill" data-target="#alertsList">Alertas</button>
+        </nav>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
