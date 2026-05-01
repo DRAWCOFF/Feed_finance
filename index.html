@@ -14,7 +14,87 @@
   </head>
   <body>
     <div class="grain"></div>
-    <div class="app-shell">
+
+    <section id="authGate" class="auth-gate hidden">
+      <div class="auth-card">
+        <p class="eyebrow">Atlas privado</p>
+        <h1>Proteja seus dados sem atrito.</h1>
+        <p class="lead compact" id="authLead">
+          Crie uma identidade local com passphrase ou desbloqueie a sessao existente.
+        </p>
+
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-auth-tab="unlock">Desbloquear</button>
+          <button class="auth-tab" data-auth-tab="setup">Primeiro uso</button>
+          <button class="auth-tab" data-auth-tab="recovery">Recovery key</button>
+        </div>
+
+        <form id="unlockForm" class="auth-form">
+          <label>
+            Passphrase
+            <input
+              name="passphrase"
+              type="password"
+              minlength="12"
+              placeholder="Sua frase secreta"
+              required
+            />
+          </label>
+          <button type="submit" class="primary-button wide">Desbloquear Atlas</button>
+        </form>
+
+        <form id="setupForm" class="auth-form hidden">
+          <label>
+            Passphrase
+            <input
+              name="passphrase"
+              type="password"
+              minlength="12"
+              placeholder="Minimo de 12 caracteres"
+              required
+            />
+          </label>
+          <label>
+            Confirmar passphrase
+            <input
+              name="confirmPassphrase"
+              type="password"
+              minlength="12"
+              placeholder="Repita a mesma passphrase"
+              required
+            />
+          </label>
+          <button type="submit" class="primary-button wide">Criar identidade local</button>
+        </form>
+
+        <form id="recoveryForm" class="auth-form hidden">
+          <label>
+            Recovery key
+            <textarea
+              name="recoveryKey"
+              rows="4"
+              placeholder="uuid::sua-passphrase"
+              required
+            ></textarea>
+          </label>
+          <label>
+            Nova passphrase opcional
+            <input
+              name="overridePassphrase"
+              type="password"
+              minlength="12"
+              placeholder="Opcional"
+            />
+          </label>
+          <button type="submit" class="primary-button wide">Recuperar identidade</button>
+        </form>
+
+        <div id="authRecoveryCard" class="auth-recovery hidden"></div>
+        <div id="authStatus" class="auth-status muted"></div>
+      </div>
+    </section>
+
+    <div class="app-shell" id="appShell">
       <aside class="sidebar">
         <div class="brand">
           <span class="brand-mark">A</span>
@@ -27,8 +107,8 @@
         <nav class="nav-stack">
           <button class="nav-chip active" data-target="#netWorthValue">Painel</button>
           <button class="nav-chip" data-target="#vaultsPanel">Cofres</button>
-          <button class="nav-chip" data-target="#budgetPanel">Previsoes</button>
-          <button class="nav-chip" data-target="#insightsList">Insights</button>
+          <button class="nav-chip" data-target="#calendarPanel">Calendario</button>
+          <button class="nav-chip" data-target="#ledgerPanel">Historico</button>
         </nav>
 
         <section class="sidebar-card">
@@ -51,7 +131,10 @@
             <h2>Registro rapido, previsao clara e decisao acionavel.</h2>
           </div>
           <div class="hero-actions">
-            <button class="ghost-button" id="exportButton">Exportar resumo</button>
+            <button class="ghost-button" id="exportSummaryButton">Resumo</button>
+            <button class="ghost-button" id="exportCsvButton">CSV</button>
+            <button class="ghost-button" id="exportJsonButton">JSON</button>
+            <button class="ghost-button" id="importButton">Importar</button>
             <button class="primary-button" id="syncGoalsButton">Sincronizar metas</button>
           </div>
         </header>
@@ -155,6 +238,23 @@
             <div id="budgetBars" class="budget-bars"></div>
           </article>
 
+          <article class="panel" id="dataPanel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Governanca</p>
+                <h3>Importacao e exportacao</h3>
+              </div>
+              <span class="mono-badge">csv json</span>
+            </div>
+            <div class="data-actions">
+              <button class="ghost-button wide" id="dataImportButton">Importar CSV ou JSON</button>
+              <button class="ghost-button wide" id="dataExportCsvButton">Exportar CSV</button>
+              <button class="ghost-button wide" id="dataExportJsonButton">Exportar JSON</button>
+            </div>
+            <div class="import-preview" id="importPreview"></div>
+            <input id="importFileInput" type="file" accept=".csv,.json,application/json,text/csv" hidden />
+          </article>
+
           <article class="panel wide-panel">
             <div class="panel-head">
               <div>
@@ -167,6 +267,25 @@
               <svg id="yearlyChart" viewBox="0 0 760 300" preserveAspectRatio="none"></svg>
             </div>
             <div class="summary-strip" id="yearSummaryStrip"></div>
+          </article>
+
+          <article class="panel wide-panel" id="calendarPanel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Calendario financeiro</p>
+                <h3>O que vem por ai</h3>
+              </div>
+              <div class="calendar-controls">
+                <button class="ghost-button" id="calendarPrevButton">Anterior</button>
+                <span class="mono-badge" id="calendarMonthLabel">Mes atual</span>
+                <button class="ghost-button" id="calendarNextButton">Proximo</button>
+              </div>
+            </div>
+            <div class="calendar-summary" id="calendarSummary"></div>
+            <div class="calendar-shell">
+              <div class="calendar-grid" id="calendarGrid"></div>
+              <div class="calendar-agenda" id="calendarAgenda"></div>
+            </div>
           </article>
 
           <article class="panel">
@@ -229,7 +348,7 @@
             <div class="insight-list" id="insightsList"></div>
           </article>
 
-          <article class="panel wide-panel">
+          <article class="panel wide-panel" id="ledgerPanel">
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Fluxo recente</p>
@@ -244,11 +363,93 @@
         <nav class="mobile-dock">
           <button class="dock-pill active" data-target="#netWorthValue">Painel</button>
           <button class="dock-pill" data-target="#vaultsPanel">Cofres</button>
-          <button class="dock-pill" data-target="#transactionForm">Lancar</button>
-          <button class="dock-pill" data-target="#alertsList">Alertas</button>
+          <button class="dock-pill" data-target="#calendarPanel">Calendario</button>
+          <button class="dock-pill" data-target="#ledgerPanel">Historico</button>
         </nav>
       </main>
     </div>
+
+    <div class="modal-backdrop hidden" id="recordModal">
+      <div class="modal-card">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow" id="modalEyebrow">Edicao</p>
+            <h3 id="modalTitle">Editar registro</h3>
+          </div>
+          <button class="ghost-button" id="closeModalButton">Fechar</button>
+        </div>
+
+        <form id="editForm" class="entry-form modal-form">
+          <input type="hidden" name="recordType" />
+          <input type="hidden" name="recordId" />
+
+          <div class="field-grid dual modal-transaction-only">
+            <label>
+              Tipo
+              <select name="kind">
+                <option value="income">Renda</option>
+                <option value="expense">Despesa</option>
+              </select>
+            </label>
+            <label>
+              Categoria
+              <select name="category"></select>
+            </label>
+          </div>
+
+          <div class="field-grid dual">
+            <label>
+              Nomeacao
+              <input name="title" type="text" required />
+            </label>
+            <label>
+              Valor
+              <input name="amount" type="number" min="0" step="0.01" required />
+            </label>
+          </div>
+
+          <div class="field-grid dual modal-transaction-only">
+            <label>
+              Data
+              <input name="date" type="date" />
+            </label>
+            <label>
+              Hora
+              <input name="time" type="time" />
+            </label>
+          </div>
+
+          <div class="field-grid dual modal-transaction-only">
+            <label>
+              Cofre
+              <input name="vault" type="text" />
+            </label>
+            <label>
+              Observacao
+              <input name="note" type="text" />
+            </label>
+          </div>
+
+          <div class="field-grid dual modal-recurring-only hidden">
+            <label>
+              Inicio
+              <input name="startDate" type="date" />
+            </label>
+            <label>
+              Meses
+              <input name="months" type="number" min="1" step="1" />
+            </label>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="ghost-button danger" id="deleteRecordButton">Excluir</button>
+            <button type="submit" class="primary-button">Salvar alteracoes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="toast-region" id="toastRegion"></div>
 
     <script type="module" src="./app.js"></script>
   </body>

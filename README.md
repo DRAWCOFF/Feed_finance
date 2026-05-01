@@ -1,6 +1,6 @@
 # Atlas Finance
 
-App financeiro pessoal pronto para deploy na Vercel com persistencia no Supabase.
+App financeiro pessoal pronto para deploy na Vercel com persistencia no Supabase, autenticacao minima por passphrase e identidade local sem email real.
 
 ## Rodar localmente
 
@@ -14,10 +14,13 @@ Crie um arquivo `.env.local` a partir de `.env.example` se quiser conectar o ban
 ## Configurar o Supabase
 
 1. Crie um projeto no Supabase.
-2. Abra o SQL Editor.
-3. Execute o arquivo `supabase/schema.sql`.
-4. Copie a `Project URL` e a `anon key`.
-5. Preencha:
+2. Em `Authentication > Settings`, desabilite a confirmacao por email.
+3. Em `Authentication > URL Configuration`, configure:
+   `Site URL`: `http://localhost:5173` no dev e depois sua URL da Vercel em producao.
+4. Abra o SQL Editor.
+5. Execute o arquivo `supabase/schema.sql`.
+6. Copie a `Project URL` e a `anon key`.
+7. Preencha:
 
 ```bash
 VITE_SUPABASE_URL=...
@@ -32,4 +35,8 @@ VITE_SUPABASE_ANON_KEY=...
 
 ## Observacao importante
 
-Este projeto esta configurado sem login e com politicas anonimas no Supabase para facilitar uso pessoal. Se a URL do app for publica, qualquer pessoa que acessar o frontend podera ler e gravar dados.
+Agora o app usa autenticacao minima com identidade local e RLS por `user_id`. Isso ja e bem mais seguro que o modo anonimo anterior, mas ainda depende de alguns cuidados:
+
+- guarde a recovery key gerada no primeiro uso
+- use uma passphrase forte
+- se o schema antigo com politicas anonimas ja foi aplicado no seu projeto, vale resetar o banco ou reaplicar o novo `schema.sql`
