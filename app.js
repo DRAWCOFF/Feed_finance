@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-
+//comentario zikja
 const STORAGE_KEY = "atlas-finance-state-v3";
 const LOCAL_ID_KEY = "atlas-local-id-v1";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
