@@ -47,12 +47,23 @@ create table if not exists public.category_budgets (
   user_id uuid not null references auth.users(id) on delete cascade,
   category text not null,
   label text not null,
+  kind text not null default 'expense',
   monthly_budget numeric(12,2) not null default 0,
   accent text not null,
   updated_at timestamptz not null default timezone('utc', now()),
   created_at timestamptz not null default timezone('utc', now()),
   unique (user_id, category)
 );
+
+alter table public.category_budgets
+  add column if not exists kind text not null default 'expense';
+
+update public.category_budgets
+set kind = case when category = 'income' then 'income' else 'expense' end
+where kind is null or kind not in ('income', 'expense');
+
+create index if not exists idx_category_budgets_user_kind
+  on public.category_budgets (user_id, kind, label);
 
 create table if not exists public.vault_goals (
   id uuid primary key default gen_random_uuid(),

@@ -1,18 +1,18 @@
 import { createClient } from "@supabase/supabase-js";
 //comentario zikja
-const STORAGE_KEY = "atlas-finance-state-v3";
+const STORAGE_KEY = "atlas-finance-state-v4";
 const LOCAL_ID_KEY = "atlas-local-id-v1";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 const defaultCategoryBudgets = [
-  { category: "housing", label: "Moradia", monthly_budget: 2200, accent: "#5ea6ff" },
-  { category: "food", label: "Alimentacao", monthly_budget: 1400, accent: "#ffc670" },
-  { category: "transport", label: "Transporte", monthly_budget: 750, accent: "#b7a7ff" },
-  { category: "health", label: "Saude", monthly_budget: 680, accent: "#7ef0c9" },
-  { category: "leisure", label: "Lazer", monthly_budget: 900, accent: "#ff8875" },
-  { category: "education", label: "Educacao", monthly_budget: 600, accent: "#93b6ff" },
-  { category: "income", label: "Renda", monthly_budget: 0, accent: "#7ef0c9" },
+  { category: "housing", label: "Moradia", kind: "expense", monthly_budget: 2200, accent: "#5ea6ff" },
+  { category: "food", label: "Alimentacao", kind: "expense", monthly_budget: 1400, accent: "#ffc670" },
+  { category: "transport", label: "Transporte", kind: "expense", monthly_budget: 750, accent: "#b7a7ff" },
+  { category: "health", label: "Saude", kind: "expense", monthly_budget: 680, accent: "#7ef0c9" },
+  { category: "leisure", label: "Lazer", kind: "expense", monthly_budget: 900, accent: "#ff8875" },
+  { category: "education", label: "Educacao", kind: "expense", monthly_budget: 600, accent: "#93b6ff" },
+  { category: "income", label: "Renda principal", kind: "income", monthly_budget: 0, accent: "#7ef0c9" },
 ];
 
 const defaultVaultGoals = [
@@ -49,13 +49,22 @@ const uiState = {
   authRecoveryKey: "",
   selectedCalendarDate: isoDateOnly(new Date()),
   calendarMonthOffset: 0,
+  selectedYearMonthKey: "",
   importPreview: null,
   activeToastId: null,
   deleteQueue: new Map(),
   editingRecord: null,
+  simulation: {
+    purchaseAmount: 0,
+    installments: 12,
+    longTermMonthly: 0,
+    longTermMonths: 12,
+    incomeDelta: 0,
+    vault: "",
+  },
 };
 
-let state = structuredClone(defaultState);
+let state = createDefaultState();
 let currentUser = null;
 let persistenceMode = hasSupabaseConfig ? "locked" : "local";
 let syncMessage = hasSupabaseConfig
@@ -86,6 +95,7 @@ const el = {
   budgetSummary: document.querySelector("#budgetSummary"),
   budgetBars: document.querySelector("#budgetBars"),
   yearlyChart: document.querySelector("#yearlyChart"),
+  yearLegend: document.querySelector("#yearLegend"),
   yearSummaryStrip: document.querySelector("#yearSummaryStrip"),
   recurringList: document.querySelector("#recurringList"),
   alertsList: document.querySelector("#alertsList"),
@@ -109,6 +119,18 @@ const el = {
   calendarMonthLabel: document.querySelector("#calendarMonthLabel"),
   calendarPrevButton: document.querySelector("#calendarPrevButton"),
   calendarNextButton: document.querySelector("#calendarNextButton"),
+  categoryForm: document.querySelector("#categoryForm"),
+  categoryList: document.querySelector("#categoryList"),
+  resetCategoryFormButton: document.querySelector("#resetCategoryFormButton"),
+  vaultForm: document.querySelector("#vaultForm"),
+  vaultManagerList: document.querySelector("#vaultManagerList"),
+  resetVaultFormButton: document.querySelector("#resetVaultFormButton"),
+  transactionVaultOptions: document.querySelector("#transactionVaultOptions"),
+  editVaultOptions: document.querySelector("#editVaultOptions"),
+  simulationVaultOptions: document.querySelector("#simulationVaultOptions"),
+  simulationForm: document.querySelector("#simulationForm"),
+  simulationSummary: document.querySelector("#simulationSummary"),
+  simulationTimeline: document.querySelector("#simulationTimeline"),
   recordModal: document.querySelector("#recordModal"),
   closeModalButton: document.querySelector("#closeModalButton"),
   editForm: document.querySelector("#editForm"),
@@ -153,13 +175,23 @@ function bindEvents() {
   el.dataExportJsonButton.addEventListener("click", exportDataToJSON);
   el.importFileInput.addEventListener("change", handleImportFileChange);
   el.syncGoalsButton.addEventListener("click", () => {
-    document.querySelector("#vaultsPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    document.querySelector("#vaultManagerPanel").scrollIntoView({ behavior: "smooth", block: "start" });
   });
   el.calendarPrevButton.addEventListener("click", () => shiftCalendarMonth(-1));
   el.calendarNextButton.addEventListener("click", () => shiftCalendarMonth(1));
   el.calendarGrid.addEventListener("click", handleCalendarGridClick);
+  el.calendarAgenda.addEventListener("click", handleRecordListClick);
   el.ledgerList.addEventListener("click", handleRecordListClick);
   el.recurringList.addEventListener("click", handleRecordListClick);
+  el.categoryForm.addEventListener("submit", handleCategorySubmit);
+  el.categoryForm.elements.kind.addEventListener("change", syncCategoryFormState);
+  el.categoryList.addEventListener("click", handleCategoryListClick);
+  el.resetCategoryFormButton.addEventListener("click", resetCategoryForm);
+  el.vaultForm.addEventListener("submit", handleVaultSubmit);
+  el.vaultManagerList.addEventListener("click", handleVaultListClick);
+  el.resetVaultFormButton.addEventListener("click", resetVaultForm);
+  el.simulationForm.addEventListener("submit", handleSimulationSubmit);
+  el.yearlyChart.addEventListener("click", handleYearlyChartClick);
   el.closeModalButton.addEventListener("click", closeModal);
   el.recordModal.addEventListener("click", (event) => {
     if (event.target === el.recordModal) {
@@ -228,7 +260,7 @@ function handleSignedOut() {
   if (!supabase) {
     return;
   }
-  state = structuredClone(defaultState);
+  state = createDefaultState();
   persistenceMode = "locked";
   syncMessage = "Sessao encerrada. Desbloqueie novamente para acessar seus dados.";
   syncTone = "warning";
@@ -246,6 +278,7 @@ async function ensureUserDefaults() {
     user_id: currentUser.id,
     category: item.category,
     label: item.label,
+    kind: item.kind,
     monthly_budget: item.monthly_budget,
     accent: item.accent,
   }));
@@ -297,12 +330,12 @@ async function loadRemoteState() {
       throw failed.error;
     }
 
-    state = {
+    state = normalizeState({
       transactions: transactionsResult.data.map(mapTransactionRow),
       recurring: recurringResult.data.map(mapRecurringRow),
       categoryBudgets: budgetsResult.data.length ? budgetsResult.data : defaultCategoryBudgets,
       vaultGoals: vaultsResult.data.length ? vaultsResult.data : defaultVaultGoals,
-    };
+    });
 
     persistLocalSnapshot();
     syncMessage = "Supabase sincronizado com sucesso.";
@@ -691,14 +724,8 @@ function closeModal() {
 }
 
 function syncEditCategoryOptions(forcedKind = el.editForm.elements.kind.value, recurringOnly = false) {
-  const select = el.editForm.elements.category;
-  const availableCategories = recurringOnly || forcedKind === "expense"
-    ? defaultCategoryBudgets.filter((item) => item.category !== "income")
-    : defaultCategoryBudgets.filter((item) => item.category === "income");
-
-  select.innerHTML = availableCategories
-    .map((item) => `<option value="${item.category}">${item.label}</option>`)
-    .join("");
+  const preferred = el.editForm.elements.category.value;
+  syncCategorySelect(el.editForm.elements.category, recurringOnly ? "expense" : forcedKind, preferred);
 }
 
 async function handleEditSubmit(event) {
@@ -1185,6 +1212,14 @@ function normalizeImportDate(value) {
 
 function normalizeCategory(value) {
   const token = String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const dynamicMatch = state.categoryBudgets.find((item) => {
+    const dynamicToken = item.label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return dynamicToken === token || item.category === token;
+  });
+  if (dynamicMatch) {
+    return dynamicMatch.category;
+  }
+
   const aliases = {
     moradia: "housing",
     housing: "housing",
@@ -1286,13 +1321,322 @@ function handleCalendarGridClick(event) {
   render();
 }
 
+function handleYearlyChartClick(event) {
+  const target = event.target.closest("[data-year-month]");
+  if (!target) {
+    return;
+  }
+
+  uiState.selectedYearMonthKey = target.dataset.yearMonth;
+  render();
+}
+
+async function handleCategorySubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const currentCategory = String(form.get("currentCategory") || "").trim();
+  const kind = String(form.get("kind") || "expense");
+  const label = String(form.get("label") || "").trim();
+  const accent = String(form.get("accent") || defaultAccentForKind(kind));
+  const nextCategory = slugifyCategory(label);
+  const monthlyBudget = kind === "income" ? 0 : Number(form.get("monthlyBudget") || 0);
+
+  if (!label || !nextCategory) {
+    syncMessage = "Informe um nome valido para a categoria.";
+    syncTone = "warning";
+    render();
+    return;
+  }
+
+  const duplicate = state.categoryBudgets.find((item) => item.category === nextCategory && item.category !== currentCategory);
+  if (duplicate) {
+    syncMessage = "Ja existe uma categoria com esse nome.";
+    syncTone = "warning";
+    render();
+    return;
+  }
+
+  const previousCategory = currentCategory
+    ? state.categoryBudgets.find((item) => item.category === currentCategory)
+    : null;
+  const linkedTransactions = state.transactions.filter((item) => item.category === currentCategory);
+  const linkedRecurring = state.recurring.filter((item) => item.category === currentCategory);
+  const usageCount = linkedTransactions.length + linkedRecurring.length;
+  if (previousCategory && previousCategory.kind !== kind && usageCount > 0) {
+    syncMessage = "Nao mude o tipo de uma categoria ja usada. Crie outra e recategorize os lancamentos.";
+    syncTone = "warning";
+    render();
+    return;
+  }
+
+  const nextEntry = normalizeCategoryBudget({
+    ...previousCategory,
+    category: nextCategory,
+    label,
+    kind,
+    monthly_budget: monthlyBudget,
+    accent,
+  });
+
+  await applyStateMutation({
+    pendingMessage: previousCategory ? "Atualizando categoria..." : "Criando categoria...",
+    successMessage: previousCategory ? "Categoria atualizada." : "Categoria criada.",
+    failureMessage: "Nao foi possivel salvar a categoria.",
+    mutate: () => {
+      const remaining = state.categoryBudgets.filter((item) => item.category !== currentCategory);
+      state.categoryBudgets = [...remaining, nextEntry].sort(sortCategories);
+      if (currentCategory && currentCategory !== nextCategory) {
+        state.transactions.forEach((item) => {
+          if (item.category === currentCategory) {
+            item.category = nextCategory;
+          }
+        });
+        state.recurring.forEach((item) => {
+          if (item.category === currentCategory) {
+            item.category = nextCategory;
+          }
+        });
+      }
+    },
+    persist: () => persistCategoryBudget(previousCategory, nextEntry),
+  });
+
+  resetCategoryForm();
+}
+
+function handleCategoryListClick(event) {
+  const button = event.target.closest("[data-category-action]");
+  if (!button) {
+    return;
+  }
+
+  const categoryId = button.dataset.categoryId;
+  if (button.dataset.categoryAction === "edit") {
+    populateCategoryForm(categoryId);
+    return;
+  }
+
+  if (button.dataset.categoryAction === "delete") {
+    deleteCategoryBudget(categoryId);
+  }
+}
+
+function populateCategoryForm(categoryId) {
+  const target = state.categoryBudgets.find((item) => item.category === categoryId);
+  if (!target) {
+    return;
+  }
+
+  el.categoryForm.elements.currentCategory.value = target.category;
+  el.categoryForm.elements.kind.value = target.kind;
+  el.categoryForm.elements.label.value = target.label;
+  el.categoryForm.elements.monthlyBudget.value = target.monthly_budget;
+  el.categoryForm.elements.accent.value = target.accent;
+  syncCategoryFormState();
+}
+
+function resetCategoryForm() {
+  el.categoryForm.reset();
+  el.categoryForm.elements.currentCategory.value = "";
+  el.categoryForm.elements.kind.value = "expense";
+  el.categoryForm.elements.monthlyBudget.value = "";
+  el.categoryForm.elements.accent.value = defaultAccentForKind("expense");
+  syncCategoryFormState();
+}
+
+function syncCategoryFormState() {
+  const kind = el.categoryForm.elements.kind.value || "expense";
+  const budgetInput = el.categoryForm.elements.monthlyBudget;
+  if (!el.categoryForm.elements.currentCategory.value) {
+    el.categoryForm.elements.accent.value = defaultAccentForKind(kind);
+  }
+  budgetInput.disabled = kind === "income";
+  if (kind === "income") {
+    budgetInput.value = "0";
+  }
+}
+
+async function deleteCategoryBudget(categoryId) {
+  const target = state.categoryBudgets.find((item) => item.category === categoryId);
+  if (!target) {
+    return;
+  }
+
+  const sameKind = getCategoriesByKind(target.kind, state).filter((item) => item.category !== categoryId);
+  if (!sameKind.length) {
+    syncMessage = `Mantenha ao menos uma categoria de ${target.kind === "income" ? "renda" : "despesa"}.`;
+    syncTone = "warning";
+    render();
+    return;
+  }
+
+  const fallbackCategory = sameKind[0].category;
+  await applyStateMutation({
+    pendingMessage: "Removendo categoria e reclassificando registros...",
+    successMessage: "Categoria removida com sucesso.",
+    failureMessage: "Nao foi possivel remover a categoria.",
+    mutate: () => {
+      state.categoryBudgets = state.categoryBudgets.filter((item) => item.category !== categoryId);
+      state.transactions.forEach((item) => {
+        if (item.category === categoryId) {
+          item.category = fallbackCategory;
+        }
+      });
+      state.recurring.forEach((item) => {
+        if (item.category === categoryId) {
+          item.category = fallbackCategory;
+        }
+      });
+    },
+    persist: () => removeCategoryBudget(target, fallbackCategory),
+  });
+
+  resetCategoryForm();
+}
+
+async function handleVaultSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const currentName = String(form.get("currentName") || "").trim();
+  const name = String(form.get("name") || "").trim();
+  const objective = String(form.get("objective") || "").trim();
+  const target = Number(form.get("target") || 0);
+  const accent = String(form.get("accent") || defaultVaultGoals[0].accent);
+
+  if (!name || !objective) {
+    syncMessage = "Preencha nome e objetivo do cofre.";
+    syncTone = "warning";
+    render();
+    return;
+  }
+
+  const duplicate = state.vaultGoals.find((item) => item.name === name && item.name !== currentName);
+  if (duplicate) {
+    syncMessage = "Ja existe um cofre com esse nome.";
+    syncTone = "warning";
+    render();
+    return;
+  }
+
+  const previousVault = currentName
+    ? state.vaultGoals.find((item) => item.name === currentName)
+    : null;
+  const nextEntry = normalizeVaultGoal({
+    ...previousVault,
+    name,
+    objective,
+    target,
+    accent,
+    display_order: previousVault?.display_order || state.vaultGoals.length + 1,
+  }, state.vaultGoals.length);
+
+  await applyStateMutation({
+    pendingMessage: previousVault ? "Atualizando cofre..." : "Criando cofre...",
+    successMessage: previousVault ? "Cofre atualizado." : "Cofre criado.",
+    failureMessage: "Nao foi possivel salvar o cofre.",
+    mutate: () => {
+      const remaining = state.vaultGoals.filter((item) => item.name !== currentName);
+      state.vaultGoals = [...remaining, nextEntry].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
+      if (currentName && currentName !== name) {
+        state.transactions.forEach((item) => {
+          if ((item.vault || "").trim() === currentName) {
+            item.vault = name;
+          }
+        });
+      }
+    },
+    persist: () => persistVaultGoal(previousVault, nextEntry),
+  });
+
+  resetVaultForm();
+}
+
+function handleVaultListClick(event) {
+  const button = event.target.closest("[data-vault-action]");
+  if (!button) {
+    return;
+  }
+
+  const vaultName = decodeURIComponent(button.dataset.vaultName || "");
+  if (button.dataset.vaultAction === "edit") {
+    populateVaultForm(vaultName);
+    return;
+  }
+
+  if (button.dataset.vaultAction === "delete") {
+    deleteVaultGoal(vaultName);
+  }
+}
+
+function populateVaultForm(vaultName) {
+  const target = state.vaultGoals.find((item) => item.name === vaultName);
+  if (!target) {
+    return;
+  }
+
+  el.vaultForm.elements.currentName.value = target.name;
+  el.vaultForm.elements.name.value = target.name;
+  el.vaultForm.elements.objective.value = target.objective;
+  el.vaultForm.elements.target.value = target.target;
+  el.vaultForm.elements.accent.value = target.accent;
+}
+
+function resetVaultForm() {
+  el.vaultForm.reset();
+  el.vaultForm.elements.currentName.value = "";
+  el.vaultForm.elements.target.value = "";
+  el.vaultForm.elements.accent.value = defaultVaultGoals[0].accent;
+}
+
+async function deleteVaultGoal(vaultName) {
+  const target = state.vaultGoals.find((item) => item.name === vaultName);
+  if (!target) {
+    return;
+  }
+
+  await applyStateMutation({
+    pendingMessage: "Removendo cofre...",
+    successMessage: "Cofre removido.",
+    failureMessage: "Nao foi possivel remover o cofre.",
+    mutate: () => {
+      state.vaultGoals = state.vaultGoals.filter((item) => item.name !== vaultName);
+      state.transactions.forEach((item) => {
+        if ((item.vault || "").trim() === vaultName) {
+          item.vault = "Conta principal";
+        }
+      });
+    },
+    persist: () => removeVaultGoal(target),
+  });
+
+  resetVaultForm();
+}
+
+function handleSimulationSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  uiState.simulation = {
+    purchaseAmount: Number(form.get("purchaseAmount") || 0),
+    installments: Math.max(1, Number(form.get("installments") || 1)),
+    longTermMonthly: Number(form.get("longTermMonthly") || 0),
+    longTermMonths: Math.max(1, Number(form.get("longTermMonths") || 1)),
+    incomeDelta: Number(form.get("incomeDelta") || 0),
+    vault: String(form.get("vault") || "").trim(),
+  };
+  render();
+}
+
 function render() {
+  renderLinkedInputs();
   const analytics = buildAnalytics(state);
   renderSyncStatus();
   renderHero(analytics);
   renderVaults(analytics);
   renderBudget(analytics);
   renderYearlyChart(analytics);
+  renderCategoryManager();
+  renderVaultManager();
+  renderSimulation(analytics);
   renderRecurring(analytics);
   renderAlerts(analytics);
   renderInsights(analytics);
@@ -1324,6 +1668,8 @@ function renderHero(analytics) {
   el.trendPill.textContent = analytics.trendLabel;
   el.trendPill.className = `status-pill ${analytics.trendTone}`;
   el.topMetrics.innerHTML = [
+    metricCard("Media mensal de renda", currency(analytics.avgMonthlyIncome)),
+    metricCard("Orcamento diario", currency(analytics.dailySpendingBudget)),
     metricCard("Media mensal de gastos", currency(analytics.avgMonthlyExpense)),
     metricCard("Dias para saldo negativo", analytics.daysUntilNegativeText),
     metricCard("Sobra prevista", currency(analytics.projectedRemainder)),
@@ -1346,7 +1692,7 @@ function renderVaults(analytics) {
             <div class="vault-progress"><span style="width:${vault.progress}%; background: linear-gradient(90deg, ${vault.accent}, rgba(255,255,255,0.88));"></span></div>
             <div class="vault-top">
               <span class="mono-badge ${vault.progress >= 100 ? "positive" : ""}">${vault.progress}% da meta</span>
-              <span class="muted">${currency(vault.target)} alvo</span>
+              <span class="muted">${currency(vault.target)} alvo · ${vault.entryCount} movimento(s)</span>
             </div>
           </article>
         `)
@@ -1400,6 +1746,7 @@ function renderYearlyChart(analytics) {
     L ${padding.left} ${padding.top + innerHeight}
     Z
   `;
+  const selectedMonth = analytics.selectedYearMonth;
 
   el.yearlyChart.innerHTML = `
     <defs>
@@ -1429,19 +1776,123 @@ function renderYearlyChart(analytics) {
     ${months
       .map(
         (item, index) => `
+          <rect x="${padding.left + index * xStep - xStep / 2}" y="${padding.top}" width="${Math.max(xStep, 24)}" height="${innerHeight}" fill="transparent" data-year-month="${item.key}"></rect>
           <circle cx="${padding.left + index * xStep}" cy="${valueY(Math.max(item.net, 0))}" r="4.5" fill="#f4f4f1"></circle>
+          <circle cx="${padding.left + index * xStep}" cy="${valueY(Math.max(item.income, 0))}" r="${item.key === selectedMonth.key ? 5.5 : 4}" fill="#7ef0c9" opacity="${item.key === selectedMonth.key ? "1" : "0.76"}" data-year-month="${item.key}"></circle>
+          <circle cx="${padding.left + index * xStep}" cy="${valueY(Math.max(item.expense, 0))}" r="${item.key === selectedMonth.key ? 5.5 : 4}" fill="#ff8875" opacity="${item.key === selectedMonth.key ? "1" : "0.76"}" data-year-month="${item.key}"></circle>
+          <circle cx="${padding.left + index * xStep}" cy="${valueY(Math.max(item.net, 0))}" r="${item.key === selectedMonth.key ? 5.5 : 4.5}" fill="#f4f4f1" data-year-month="${item.key}"></circle>
           <text class="axis-label" x="${padding.left + index * xStep}" y="${height - 12}" text-anchor="middle">${item.label}</text>
         `,
       )
       .join("")}
   `;
 
+  el.yearLegend.innerHTML = `
+    <article class="legend-item">
+      <span class="legend-swatch income"></span>
+      <div>
+        <strong>Receitas</strong>
+        <p>Curva verde-azulada com as entradas do mes.</p>
+      </div>
+    </article>
+    <article class="legend-item">
+      <span class="legend-swatch expense"></span>
+      <div>
+        <strong>Despesas</strong>
+        <p>Curva coral mostra quanto saiu em cada fechamento.</p>
+      </div>
+    </article>
+    <article class="legend-item">
+      <span class="legend-swatch net"></span>
+      <div>
+        <strong>Sobra</strong>
+        <p>Linha clara tracejada revela o saldo do mes. Clique em um ponto para detalhar.</p>
+      </div>
+    </article>
+  `;
+
   el.yearSummaryStrip.innerHTML = [
     summaryCard("Receitas no ano", currency(analytics.yearIncome)),
     summaryCard("Despesas no ano", currency(analytics.yearExpense)),
-    summaryCard("Melhor mes", analytics.bestMonth.label),
+    summaryCard("Mes em foco", `${selectedMonth.label} · ${currency(selectedMonth.net)}`),
     summaryCard("Pior desvio", analytics.worstSpike),
   ].join("");
+}
+
+function renderCategoryManager() {
+  const categories = [...state.categoryBudgets].sort(sortCategories);
+  el.categoryList.innerHTML = categories.length
+    ? categories
+        .map((item) => `
+          <article class="manager-card">
+            <div class="manager-top">
+              <div>
+                <p class="eyebrow">${item.kind === "income" ? "Renda" : "Despesa"}</p>
+                <h4>${escapeHtml(item.label)}</h4>
+              </div>
+              <span class="manager-accent" style="background:${item.accent};"></span>
+            </div>
+            <p>${item.kind === "income" ? "Categoria pronta para entradas e previsoes." : `Orcamento mensal de ${currency(item.monthly_budget)}.`}</p>
+            <div class="record-actions" style="margin-top:12px;">
+              <button class="record-button" type="button" data-category-action="edit" data-category-id="${item.category}">Editar</button>
+              <button class="record-button" type="button" data-category-action="delete" data-category-id="${item.category}">Apagar</button>
+            </div>
+          </article>
+        `)
+        .join("")
+    : emptyState("Crie categorias para conectar formularios, historico e calendario.");
+}
+
+function renderVaultManager() {
+  const vaults = [...state.vaultGoals].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
+  el.vaultManagerList.innerHTML = vaults.length
+    ? vaults
+        .map((item) => `
+          <article class="manager-card">
+            <div class="manager-top">
+              <div>
+                <p class="eyebrow">Meta integrada</p>
+                <h4>${escapeHtml(item.name)}</h4>
+              </div>
+              <span class="manager-accent" style="background:${item.accent};"></span>
+            </div>
+            <p>${escapeHtml(item.objective)} · alvo de ${currency(item.target)}</p>
+            <div class="record-actions" style="margin-top:12px;">
+              <button class="record-button" type="button" data-vault-action="edit" data-vault-name="${encodeURIComponent(item.name)}">Editar</button>
+              <button class="record-button" type="button" data-vault-action="delete" data-vault-name="${encodeURIComponent(item.name)}">Apagar</button>
+            </div>
+          </article>
+        `)
+        .join("")
+    : emptyState("Crie um cofre para concentrar metas e vincular lancamentos.");
+}
+
+function renderSimulation(analytics) {
+  const simulation = analytics.simulation;
+  el.simulationSummary.innerHTML = [
+    summaryCard("Parcela mensal", currency(simulation.installmentValue)),
+    summaryCard("Nova sobra", currency(simulation.simulatedRemainder)),
+    summaryCard("Impacto anual", currency(simulation.totalAnnualImpact)),
+    summaryCard("Risco de ruptura", simulation.daysUntilNegative ? `${simulation.daysUntilNegative} dias` : "Sem risco imediato"),
+    summaryCard("Folga diaria", currency(simulation.simulatedDailyBudget)),
+  ].join("");
+
+  el.simulationTimeline.innerHTML = simulation.months.length
+    ? simulation.months
+        .map((item) => `
+          <article class="simulation-month ${item.net >= 0 ? "positive" : "negative"}">
+            <div class="manager-top">
+              <div>
+                <p class="eyebrow">${item.label}</p>
+                <h4>${currency(item.runningBalance)}</h4>
+              </div>
+              <span class="mono-badge ${item.net >= 0 ? "positive" : "alert"}">${currency(item.net)}</span>
+            </div>
+            <p>${currency(item.installment)} em parcelas · ${currency(item.longTerm)} em gasto longo · renda simulada ${currency(item.income)}</p>
+          </article>
+        `)
+        .join("")
+    : emptyState("Preencha a simulacao para enxergar o impacto dos proximos meses.");
 }
 
 function renderRecurring(analytics) {
@@ -1592,6 +2043,11 @@ function renderCalendarAgendaItem(event) {
         ${event.confirmed ? '<span class="calendar-tag low">confirmado</span>' : '<span class="calendar-tag medium">previsto</span>'}
       </div>
       <p>${event.summary}</p>
+      ${event.recordId
+        ? `<div class="record-actions" style="margin-top:12px;">
+            <button class="record-button" type="button" data-record-action="edit" data-record-type="transaction" data-record-id="${event.recordId}">Editar transacao</button>
+          </div>`
+        : ""}
     </article>
   `;
 }
@@ -1601,7 +2057,7 @@ function buildAnalytics(currentState) {
   const transactions = [...currentState.transactions].sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
   const categoryBudgetsBase = currentState.categoryBudgets.length
     ? currentState.categoryBudgets
-    : defaultCategoryBudgets;
+    : defaultCategoryBudgets.map(normalizeCategoryBudget);
 
   const monthlySeries = lastMonths(12, now).map((monthDate) => {
     const monthKey = keyForMonth(monthDate);
@@ -1620,6 +2076,7 @@ function buildAnalytics(currentState) {
   const recentThreeExpenses = monthlySeries.slice(-3).map((item) => item.expense);
   const avgMonthlyExpense = average(recentThreeExpenses);
   const avgMonthlyIncome = average(monthlySeries.slice(-3).map((item) => item.income));
+  const dailySpendingBudget = avgMonthlyIncome / 30;
   const currentMonthKey = keyForMonth(now);
   const currentMonthTransactions = transactions.filter((item) => item.dateTime.slice(0, 7) === currentMonthKey);
   const currentNet = sumAmounts(transactions, "income") - sumAmounts(transactions, "expense");
@@ -1653,7 +2110,7 @@ function buildAnalytics(currentState) {
         : "Atencao moderada";
 
   const categoryBudgets = categoryBudgetsBase
-    .filter((item) => item.category !== "income")
+    .filter((item) => item.kind === "expense")
     .map((category) => {
       const spent = currentMonthTransactions
         .filter((item) => item.kind === "expense" && item.category === category.category)
@@ -1679,19 +2136,18 @@ function buildAnalytics(currentState) {
     debt: totalIncomeThisMonth * budgetTargets.debt,
   };
 
-  const vaults = (currentState.vaultGoals.length ? currentState.vaultGoals : defaultVaultGoals).map((vault, index) => {
-    const current = Math.max(0, currentNet * [0.22, 0.14, 0.31][index] + [0, 0, 0][index]);
+  const vaults = (currentState.vaultGoals.length ? currentState.vaultGoals : defaultVaultGoals.map(normalizeVaultGoal)).map((vault) => {
+    const linkedTransactions = transactions.filter((item) => (item.vault || "").trim() === vault.name);
+    const current = linkedTransactions.reduce((total, item) => total + (item.kind === "income" ? item.amount : -item.amount), 0);
     const progress = vault.target > 0 ? Math.round((current / vault.target) * 100) : 0;
     return {
       ...vault,
       current,
       progress: Math.max(progress, current > 0 ? 4 : 0),
-      summary:
-        index === 0
-          ? "Segura meses volateis e melhora sua leitura de caixa."
-          : index === 1
-            ? "Ajuda a reduzir juros e liberar renda futura."
-            : "Recebe a sobra para crescer patrimonio ao longo do tempo.",
+      entryCount: linkedTransactions.length,
+      summary: linkedTransactions.length
+        ? `${linkedTransactions.length} movimento(s) conectados a esta meta no historico.`
+        : `${vault.objective} ainda sem lancamentos vinculados. Use o cofre nos formularios para alimentar o progresso.`,
     };
   });
 
@@ -1719,17 +2175,27 @@ function buildAnalytics(currentState) {
   const yearExpense = monthlySeries.reduce((total, item) => total + item.expense, 0);
   const bestMonth = monthlySeries.reduce((best, item) => (item.net > best.net ? item : best), monthlySeries[0]);
   const worstSpikeCategory = categoryBudgets.slice().sort((a, b) => b.usage - a.usage)[0];
+  const selectedYearMonth = monthlySeries.find((item) => item.key === uiState.selectedYearMonthKey) || monthlySeries.at(-1);
+  uiState.selectedYearMonthKey = selectedYearMonth?.key || "";
   const recentTransactions = transactions.slice(0, 8).map((item) => ({
     ...item,
     categoryLabel: categoryLabel(item.category, categoryBudgetsBase),
     relative: formatDateTime(item.dateTime),
   }));
+  const simulation = buildSimulationModel({
+    currentNet,
+    avgMonthlyIncome,
+    avgMonthlyExpense,
+    dailySpendingBudget,
+  });
 
   return {
     currentNet,
     forecastNarrative,
     trendTone,
     trendLabel,
+    avgMonthlyIncome,
+    dailySpendingBudget,
     avgMonthlyExpense,
     projectedRemainder,
     daysUntilNegativeText: hasTransactionHistory ? (paceNegativeDays ? `${paceNegativeDays} dias` : "Sem risco imediato") : "Sem base ainda",
@@ -1740,11 +2206,13 @@ function buildAnalytics(currentState) {
     yearIncome,
     yearExpense,
     bestMonth,
+    selectedYearMonth,
     worstSpike: worstSpikeCategory ? `${worstSpikeCategory.label} ${worstSpikeCategory.usage}%` : "Sem desvio",
     recurringExpanded,
     alerts,
     insights,
     recentTransactions,
+    simulation,
     calendar: buildCalendarModel(currentState, transactions),
   };
 }
@@ -1754,12 +2222,14 @@ function buildCalendarModel(currentState, transactions) {
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
   const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
   const monthLabel = monthDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const categories = currentState.categoryBudgets.length ? currentState.categoryBudgets : defaultCategoryBudgets;
 
   const recurringEvents = expandRecurringEvents(currentState.recurring, monthStart, monthEnd);
   const actualEvents = transactions
     .filter((item) => item.dateTime.slice(0, 7) === keyForMonth(monthDate))
     .map((item) => ({
       id: item.id,
+      recordId: item.id,
       date: item.dateTime.slice(0, 10),
       type: "actual",
       typeLabel: "Lancamento real",
@@ -1767,7 +2237,7 @@ function buildCalendarModel(currentState, transactions) {
       amount: item.amount,
       direction: item.kind === "income" ? "in" : "out",
       confirmed: true,
-      summary: `${categoryLabel(item.category, state.categoryBudgets)} · ${item.vault || "Conta principal"}`,
+      summary: `${categoryLabel(item.category, categories)} · ${item.vault || "Conta principal"}`,
     }));
 
   const projectedIncome = buildProjectedIncomeEvent(transactions, monthStart, monthEnd, actualEvents);
@@ -2032,23 +2502,14 @@ function emptyState(message) {
 }
 
 function hydrateSelects() {
-  el.recurringCategory.innerHTML = defaultCategoryBudgets
-    .filter((item) => item.category !== "income")
-    .map((item) => `<option value="${item.category}">${item.label}</option>`)
-    .join("");
-  syncTransactionCategoryOptions();
-  syncEditCategoryOptions("expense", true);
+  renderLinkedInputs();
+  resetCategoryForm();
+  resetVaultForm();
 }
 
 function syncTransactionCategoryOptions() {
-  const isIncome = el.transactionKind.value === "income";
-  const availableCategories = isIncome
-    ? defaultCategoryBudgets.filter((item) => item.category === "income")
-    : defaultCategoryBudgets.filter((item) => item.category !== "income");
-
-  el.transactionCategory.innerHTML = availableCategories
-    .map((item) => `<option value="${item.category}">${item.label}</option>`)
-    .join("");
+  const preferred = el.transactionCategory.value;
+  syncCategorySelect(el.transactionCategory, el.transactionKind.value, preferred);
 }
 
 function hydrateFormDates() {
@@ -2089,25 +2550,20 @@ function calculateNegativeBalanceWindow(currentNet, projectedIncome, projectedEx
   return Math.max(1, Math.round(currentNet / Math.abs(dailyRate)));
 }
 
+function createDefaultState() {
+  return normalizeState(defaultState);
+}
+
 function loadLocalState() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
-      return structuredClone(defaultState);
+      return createDefaultState();
     }
     const parsed = JSON.parse(stored);
-    return {
-      transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
-      recurring: Array.isArray(parsed.recurring) ? parsed.recurring : [],
-      categoryBudgets: Array.isArray(parsed.categoryBudgets) && parsed.categoryBudgets.length
-        ? parsed.categoryBudgets
-        : defaultCategoryBudgets,
-      vaultGoals: Array.isArray(parsed.vaultGoals) && parsed.vaultGoals.length
-        ? parsed.vaultGoals
-        : defaultVaultGoals,
-    };
+    return normalizeState(parsed);
   } catch {
-    return structuredClone(defaultState);
+    return createDefaultState();
   }
 }
 
@@ -2143,21 +2599,370 @@ function mapRecurringRow(row) {
   };
 }
 
-function resolveVaultName(category, vaultGoals) {
-  const mapping = {
-    housing: "Base essencial",
-    food: "Consumo diario",
-    transport: "Mobilidade",
-    health: "Cuidado pessoal",
-    leisure: "Vida flexivel",
-    education: "Crescimento",
-    income: vaultGoals?.[0]?.name || "Conta principal",
+function normalizeState(raw = {}) {
+  return {
+    transactions: Array.isArray(raw.transactions) ? raw.transactions.map(normalizeTransactionRecord) : [],
+    recurring: Array.isArray(raw.recurring) ? raw.recurring.map(normalizeRecurringRecord) : [],
+    categoryBudgets: normalizeCategoryBudgets(raw.categoryBudgets),
+    vaultGoals: normalizeVaultGoals(raw.vaultGoals),
   };
-  return mapping[category] || "Conta principal";
+}
+
+function normalizeTransactionRecord(item) {
+  return {
+    ...item,
+    amount: Number(item.amount || 0),
+    vault: String(item.vault || "Conta principal"),
+    note: String(item.note || ""),
+  };
+}
+
+function normalizeRecurringRecord(item) {
+  return {
+    ...item,
+    amount: Number(item.amount || 0),
+    months: Math.max(1, Number(item.months || 1)),
+  };
+}
+
+function normalizeCategoryBudgets(items) {
+  const source = Array.isArray(items) && items.length ? items : defaultCategoryBudgets;
+  return source.map(normalizeCategoryBudget).sort(sortCategories);
+}
+
+function normalizeCategoryBudget(item = {}, index = 0) {
+  const category = String(item.category || item.id || slugifyCategory(item.label) || `categoria-${index + 1}`);
+  const kind = item.kind || (category === "income" ? "income" : "expense");
+  return {
+    id: item.id || category,
+    user_id: item.user_id || item.userId || null,
+    category,
+    label: String(item.label || humanizeCategory(category)),
+    kind,
+    monthly_budget: Number(item.monthly_budget ?? item.monthlyBudget ?? 0),
+    accent: String(item.accent || defaultAccentForKind(kind)),
+    updated_at: item.updated_at || item.updatedAt || null,
+    created_at: item.created_at || item.createdAt || null,
+  };
+}
+
+function normalizeVaultGoals(items) {
+  const source = Array.isArray(items) && items.length ? items : defaultVaultGoals;
+  return source.map(normalizeVaultGoal).sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
+}
+
+function normalizeVaultGoal(item = {}, index = 0) {
+  return {
+    id: item.id || item.name || `vault-${index + 1}`,
+    user_id: item.user_id || item.userId || null,
+    name: String(item.name || `Cofre ${index + 1}`),
+    objective: String(item.objective || "Meta"),
+    target: Number(item.target || 0),
+    accent: String(item.accent || defaultVaultGoals[index % defaultVaultGoals.length]?.accent || "#7ef0c9"),
+    display_order: Number(item.display_order ?? item.displayOrder ?? index + 1),
+    updated_at: item.updated_at || item.updatedAt || null,
+    created_at: item.created_at || item.createdAt || null,
+  };
+}
+
+function defaultAccentForKind(kind) {
+  return kind === "income" ? "#7ef0c9" : "#5ea6ff";
+}
+
+function slugifyCategory(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function humanizeCategory(category) {
+  return String(category || "Categoria")
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function sortCategories(a, b) {
+  if (a.kind !== b.kind) {
+    return a.kind === "income" ? -1 : 1;
+  }
+  return a.label.localeCompare(b.label, "pt-BR");
+}
+
+function getCategoriesByKind(kind, currentState = state) {
+  return currentState.categoryBudgets.filter((item) => item.kind === kind);
+}
+
+function syncCategorySelect(select, kind, preferredValue = "") {
+  const availableCategories = getCategoriesByKind(kind).sort(sortCategories);
+  select.innerHTML = availableCategories
+    .map((item) => `<option value="${item.category}">${item.label}</option>`)
+    .join("");
+
+  const nextValue = availableCategories.some((item) => item.category === preferredValue)
+    ? preferredValue
+    : availableCategories[0]?.category || "";
+  select.value = nextValue;
+}
+
+function renderLinkedInputs() {
+  syncTransactionCategoryOptions();
+  syncCategorySelect(el.recurringCategory, "expense", el.recurringCategory.value);
+  syncEditCategoryOptions(el.editForm.elements.kind.value || "expense", el.editForm.elements.recordType.value === "recurring");
+
+  const vaultOptions = [...state.vaultGoals]
+    .sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name))
+    .map((item) => `<option value="${escapeHtml(item.name)}"></option>`)
+    .join("");
+  el.transactionVaultOptions.innerHTML = vaultOptions;
+  el.editVaultOptions.innerHTML = vaultOptions;
+  el.simulationVaultOptions.innerHTML = vaultOptions;
+}
+
+async function applyStateMutation({ pendingMessage, successMessage, failureMessage, mutate, persist }) {
+  const previousState = structuredClone(state);
+  mutate();
+  persistLocalSnapshot();
+  syncMessage = pendingMessage;
+  syncTone = "warning";
+  render();
+
+  try {
+    await persist?.();
+    syncMessage = successMessage;
+    syncTone = "positive";
+  } catch (error) {
+    console.error(error);
+    state = previousState;
+    persistLocalSnapshot();
+    syncMessage = `${failureMessage}${error?.message ? ` ${error.message}` : ""}`;
+    syncTone = "negative";
+  }
+
+  render();
+}
+
+async function persistCategoryBudget(previousCategory, nextEntry) {
+  if (!supabase || !currentUser) {
+    persistenceMode = "local";
+    return;
+  }
+
+  if (previousCategory) {
+    const { error } = await supabase
+      .from("category_budgets")
+      .update({
+        category: nextEntry.category,
+        label: nextEntry.label,
+        kind: nextEntry.kind,
+        monthly_budget: nextEntry.monthly_budget,
+        accent: nextEntry.accent,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", currentUser.id)
+      .eq("category", previousCategory.category);
+    if (error) {
+      throw error;
+    }
+
+    if (previousCategory.category !== nextEntry.category) {
+      const [transactionsResult, recurringResult] = await Promise.all([
+        supabase
+          .from("transactions")
+          .update({ category: nextEntry.category, updated_at: new Date().toISOString() })
+          .eq("user_id", currentUser.id)
+          .eq("category", previousCategory.category),
+        supabase
+          .from("recurring_expenses")
+          .update({ category: nextEntry.category, updated_at: new Date().toISOString() })
+          .eq("user_id", currentUser.id)
+          .eq("category", previousCategory.category),
+      ]);
+      if (transactionsResult.error) {
+        throw transactionsResult.error;
+      }
+      if (recurringResult.error) {
+        throw recurringResult.error;
+      }
+    }
+
+    return;
+  }
+
+  const { error } = await supabase.from("category_budgets").insert({
+    user_id: currentUser.id,
+    category: nextEntry.category,
+    label: nextEntry.label,
+    kind: nextEntry.kind,
+    monthly_budget: nextEntry.monthly_budget,
+    accent: nextEntry.accent,
+  });
+  if (error) {
+    throw error;
+  }
+}
+
+async function removeCategoryBudget(target, fallbackCategory) {
+  if (!supabase || !currentUser) {
+    persistenceMode = "local";
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const [transactionsResult, recurringResult, budgetResult] = await Promise.all([
+    supabase
+      .from("transactions")
+      .update({ category: fallbackCategory, updated_at: nowIso })
+      .eq("user_id", currentUser.id)
+      .eq("category", target.category),
+    supabase
+      .from("recurring_expenses")
+      .update({ category: fallbackCategory, updated_at: nowIso })
+      .eq("user_id", currentUser.id)
+      .eq("category", target.category),
+    supabase
+      .from("category_budgets")
+      .delete()
+      .eq("user_id", currentUser.id)
+      .eq("category", target.category),
+  ]);
+
+  if (transactionsResult.error) {
+    throw transactionsResult.error;
+  }
+  if (recurringResult.error) {
+    throw recurringResult.error;
+  }
+  if (budgetResult.error) {
+    throw budgetResult.error;
+  }
+}
+
+async function persistVaultGoal(previousVault, nextEntry) {
+  if (!supabase || !currentUser) {
+    persistenceMode = "local";
+    return;
+  }
+
+  if (previousVault) {
+    const { error } = await supabase
+      .from("vault_goals")
+      .update({
+        name: nextEntry.name,
+        objective: nextEntry.objective,
+        target: nextEntry.target,
+        accent: nextEntry.accent,
+        display_order: nextEntry.display_order,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", currentUser.id)
+      .eq("name", previousVault.name);
+    if (error) {
+      throw error;
+    }
+
+    if (previousVault.name !== nextEntry.name) {
+      const { error: transactionError } = await supabase
+        .from("transactions")
+        .update({ vault: nextEntry.name, updated_at: new Date().toISOString() })
+        .eq("user_id", currentUser.id)
+        .eq("vault", previousVault.name);
+      if (transactionError) {
+        throw transactionError;
+      }
+    }
+
+    return;
+  }
+
+  const { error } = await supabase.from("vault_goals").insert({
+    user_id: currentUser.id,
+    name: nextEntry.name,
+    objective: nextEntry.objective,
+    target: nextEntry.target,
+    accent: nextEntry.accent,
+    display_order: nextEntry.display_order,
+  });
+  if (error) {
+    throw error;
+  }
+}
+
+async function removeVaultGoal(target) {
+  if (!supabase || !currentUser) {
+    persistenceMode = "local";
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const [transactionsResult, vaultResult] = await Promise.all([
+    supabase
+      .from("transactions")
+      .update({ vault: "Conta principal", updated_at: nowIso })
+      .eq("user_id", currentUser.id)
+      .eq("vault", target.name),
+    supabase
+      .from("vault_goals")
+      .delete()
+      .eq("user_id", currentUser.id)
+      .eq("name", target.name),
+  ]);
+
+  if (transactionsResult.error) {
+    throw transactionsResult.error;
+  }
+  if (vaultResult.error) {
+    throw vaultResult.error;
+  }
+}
+
+function buildSimulationModel(base) {
+  const purchaseAmount = Number(uiState.simulation.purchaseAmount || 0);
+  const installments = Math.max(1, Number(uiState.simulation.installments || 1));
+  const longTermMonthly = Number(uiState.simulation.longTermMonthly || 0);
+  const longTermMonths = Math.max(1, Number(uiState.simulation.longTermMonths || 1));
+  const incomeDelta = Number(uiState.simulation.incomeDelta || 0);
+  const simulatedIncome = base.avgMonthlyIncome + incomeDelta;
+  const installmentValue = purchaseAmount > 0 ? purchaseAmount / installments : 0;
+  const simulatedExpense = base.avgMonthlyExpense + installmentValue + longTermMonthly;
+  const simulatedRemainder = simulatedIncome - simulatedExpense;
+  const simulatedDailyBudget = simulatedIncome / 30;
+  const totalAnnualImpact = installmentValue * Math.min(installments, 12) + longTermMonthly * Math.min(longTermMonths, 12);
+  const months = lastMonths(6, new Date(new Date().getFullYear(), new Date().getMonth() + 5, 1))
+    .map((monthDate, index) => {
+      const activeInstallment = index < installments ? installmentValue : 0;
+      const activeLongTerm = index < longTermMonths ? longTermMonthly : 0;
+      const income = simulatedIncome;
+      const expense = base.avgMonthlyExpense + activeInstallment + activeLongTerm;
+      const net = income - expense;
+      return {
+        label: capitalize(monthDate.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")),
+        installment: activeInstallment,
+        longTerm: activeLongTerm,
+        income,
+        net,
+        runningBalance: base.currentNet + net * (index + 1),
+      };
+    });
+
+  return {
+    installmentValue,
+    simulatedRemainder,
+    simulatedDailyBudget,
+    totalAnnualImpact,
+    daysUntilNegative: calculateNegativeBalanceWindow(base.currentNet, simulatedIncome, simulatedExpense),
+    months,
+  };
+}
+
+function resolveVaultName(category, vaultGoals) {
+  return vaultGoals?.[0]?.name || (category === "income" ? "Conta principal" : "Conta principal");
 }
 
 function categoryLabel(categoryId, budgets = defaultCategoryBudgets) {
-  return budgets.find((item) => item.category === categoryId)?.label || "Categoria";
+  return budgets.find((item) => item.category === categoryId)?.label || humanizeCategory(categoryId);
 }
 
 function formatDateTime(value) {

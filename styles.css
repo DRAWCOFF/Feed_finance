@@ -520,6 +520,16 @@ textarea:focus {
   box-shadow: 0 0 0 4px rgba(94, 166, 255, 0.12);
 }
 
+input[type="color"] {
+  min-height: 52px;
+  padding: 8px;
+}
+
+input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -541,7 +551,11 @@ textarea:focus {
 .alert-list,
 .insight-list,
 .ledger-list,
-.import-preview {
+.import-preview,
+.manager-list,
+.simulation-timeline,
+.year-legend,
+.simulation-summary {
   display: grid;
   gap: 14px;
   margin-top: 18px;
@@ -554,7 +568,10 @@ textarea:focus {
 .ledger-item,
 .empty-card,
 .calendar-agenda-item,
-.import-preview-card {
+.import-preview-card,
+.manager-card,
+.legend-item,
+.simulation-month {
   border: 1px solid var(--border);
   border-radius: 22px;
   padding: 16px 18px;
@@ -585,7 +602,8 @@ textarea:focus {
 .ledger-top,
 .budget-row,
 .alert-top,
-.calendar-event-top {
+.calendar-event-top,
+.manager-top {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -597,7 +615,9 @@ textarea:focus {
 .alert-item h4,
 .insight-item h4,
 .ledger-item h4,
-.calendar-agenda-item h4 {
+.calendar-agenda-item h4,
+.manager-card h4,
+.simulation-month h4 {
   margin: 0;
   font-size: 1rem;
 }
@@ -669,6 +689,10 @@ textarea:focus {
   height: 100%;
 }
 
+#yearlyChart [data-year-month] {
+  cursor: pointer;
+}
+
 .axis-label {
   fill: rgba(244, 244, 241, 0.45);
   font-family: "Onest", sans-serif;
@@ -704,6 +728,82 @@ textarea:focus {
 .record-button:hover {
   color: var(--text);
   border-color: var(--border-strong);
+}
+
+.manager-accent,
+.legend-swatch {
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.manager-accent {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
+}
+
+.year-legend {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.legend-item strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.legend-item p,
+.manager-card p,
+.simulation-month p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.legend-swatch {
+  width: 44px;
+  height: 12px;
+  border-radius: 999px;
+  margin-top: 6px;
+}
+
+.legend-swatch.income {
+  background: linear-gradient(90deg, #7ef0c9, #5ea6ff);
+}
+
+.legend-swatch.expense {
+  background: linear-gradient(90deg, #ff8875, #ffc670);
+}
+
+.legend-swatch.net {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(244, 244, 241, 0.95) 0 8px,
+      rgba(244, 244, 241, 0.1) 8px 14px
+    );
+}
+
+.simulation-summary {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.simulation-timeline {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.simulation-month.positive {
+  border-color: rgba(126, 240, 201, 0.24);
+}
+
+.simulation-month.negative {
+  border-color: rgba(255, 136, 117, 0.28);
 }
 
 .alert-item.warning {
